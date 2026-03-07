@@ -29,6 +29,7 @@
 #include <jawt_md.h>
 #include <OpenGL/gl3.h>
 #include <QuartzCore/QuartzCore.h>
+#include <Metal/Metal.h>
 
 @protocol CanSetContentsChanged
 -(void)setContentsChanged;
@@ -262,6 +263,55 @@ static void poolLogStats(IOSurfacePool *pool) {
 }
 #endif
 
+JNIEXPORT void JNICALL Java_net_runelite_rlawt_AWTContext_createMetalLayer(JNIEnv *env, jobject self) {
+	AWTContext *ctx = rlawtGetContext(env, self);
+	if (!ctx || !rlawtContextState(env, ctx, false)) {
+		return;
+	}
+
+	JAWT_DrawingSurfaceInfo *dsi = ctx->ds->GetDrawingSurfaceInfo(ctx->ds);
+	if (!dsi) {
+		rlawtThrow(env, "unable to get dsi");
+		return;
+	}
+
+	id<JAWT_SurfaceLayers> dspi = (id<JAWT_SurfaceLayers>) dsi->platformInfo;
+	if (!dspi) {
+		rlawtThrow(env, "unable to get platform dsi");
+		ctx->ds->FreeDrawingSurfaceInfo(dsi);
+		return;
+	}
+
+	dispatch_sync(dispatch_get_main_queue(), ^{
+		CAMetalLayer *metalLayer = [[CAMetalLayer alloc] init];
+		metalLayer.opaque = YES;
+		metalLayer.contentsScale = dspi.windowLayer.contentsScale;
+		metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
+		metalLayer.framebufferOnly = YES;
+		metalLayer.frame = CGRectMake(
+			dsi->bounds.x + ctx->offsetX,
+			dspi.windowLayer.bounds.size.height - (dsi->bounds.y + ctx->offsetY) - dsi->bounds.height,
+			dsi->bounds.width,
+			dsi->bounds.height);
+
+		ctx->layer = metalLayer;
+		dspi.layer = metalLayer;
+	});
+
+	ctx->ds->FreeDrawingSurfaceInfo(dsi);
+	ctx->metalLayerCreated = true;
+	ctx->contextCreated = true; // Mark as created so other state checks pass
+}
+
+JNIEXPORT jlong JNICALL Java_net_runelite_rlawt_AWTContext_getMetalLayerPointer(JNIEnv *env, jobject self) {
+	AWTContext *ctx = rlawtGetContext(env, self);
+	if (!ctx || !ctx->metalLayerCreated) {
+		rlawtThrow(env, "Metal layer not created");
+		return 0;
+	}
+	return (jlong) ctx->layer;
+}
+
 JNIEXPORT void JNICALL Java_net_runelite_rlawt_AWTContext_createGLContext(JNIEnv *env, jobject self) {
 	AWTContext *ctx = rlawtGetContext(env, self);
 	if (!ctx || !rlawtContextState(env, ctx, false)) {
@@ -349,10 +399,12 @@ freeDSI:
 }
 
 void rlawtContextFreePlatform(JNIEnv *env, AWTContext *ctx) {
-	poolDestroy(&ctx->pool);
-	CGLSetCurrentContext(NULL);
-	if (ctx->context) {
-		CGLDestroyContext(ctx->context);
+	if (!ctx->metalLayerCreated) {
+		poolDestroy(&ctx->pool);
+		CGLSetCurrentContext(NULL);
+		if (ctx->context) {
+			CGLDestroyContext(ctx->context);
+		}
 	}
 	if (ctx->layer) {
 		dispatch_sync(dispatch_get_main_queue(), ^{

@@ -87,6 +87,9 @@ typedef struct {
 	CGLContextObj context;
 	IOSurfacePool pool;
 
+	// For Vulkan/Metal path
+	bool metalLayerCreated;
+
 	int offsetX;
 	int offsetY;
 #endif

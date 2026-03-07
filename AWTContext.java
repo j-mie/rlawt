@@ -159,6 +159,20 @@ public final class AWTContext
 	 */
 	public native void createGLContext();
 
+	/**
+	 * Creates a CAMetalLayer for Vulkan/Metal rendering instead of an OpenGL context.
+	 * Call this instead of createGLContext() when using the Vulkan renderer.
+	 * macOS only.
+	 */
+	public native void createMetalLayer();
+
+	/**
+	 * Returns the native pointer to the CAMetalLayer, for use with
+	 * VK_EXT_metal_surface to create a VkSurfaceKHR.
+	 * Only valid after calling createMetalLayer(). macOS only.
+	 */
+	public native long getMetalLayerPointer();
+
 	public native int setSwapInterval(int interval);
 
 	public native void makeCurrent();
